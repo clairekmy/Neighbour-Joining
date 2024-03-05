@@ -218,9 +218,7 @@ def graph_to_newick(G, root=None):
 pickle_dir = 'results'
 newick_dir = 'results'
 
-# Ensure the Newick directory exists
-if not os.path.exists(newick_dir):
-    os.makedirs(newick_dir)
+
 
 
 num_of_seed =10
