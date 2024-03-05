@@ -21,10 +21,20 @@ nuc_vec = {'A': [1., 0., 0., 0.], 'C': [0., 1., 0., 0.], 'G': [0., 0., 1., 0.], 
 def convert_data_str_to_onehot(data):
     n_leaves = len(data)
     n_sites = len(data[0])
-    data_onehot = np.ones((n_leaves, n_sites, alphabet_size))
+    data_onehot = np.zeros((n_leaves, n_sites, alphabet_size))
     for i in range(n_leaves):
-        data_onehot[i] = np.array([nuc_vec[c] for c in data[i]])
+        for j in range(n_sites):
+            if data[i][j] in nuc_vec:
+                data_onehot[i, j] = nuc_vec[data[i][j]]
+            else:
+                # Handle unsupported nucleotides here
+                # For example, set to the default 'N'
+                data_onehot[i, j] = nuc_vec['N']
     return data_onehot
+
+
+
+
 
 
 def newick2nx(newick_str, n_leaves, scale=0.1):
@@ -84,10 +94,6 @@ def newick2nx(newick_str, n_leaves, scale=0.1):
                 children.append(child_node.taxon)
             tree.add_node(node.taxon, children=children)
     return tree
-
-
-
-
 
 
 
