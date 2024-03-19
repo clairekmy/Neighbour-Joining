@@ -260,18 +260,20 @@ def decomposeTree(root, tree, held_out, is_last=False, current_degree=0, first_p
 
 
 
-
-
-
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', required=True)
-    parser.add_argument('--num_of_seed', type=int, required=True)
+    parser = argparse.ArgumentParser(description='Run sparse Neighbor Joining on a dataset.')
+    parser.add_argument('--dataset', required=True, help='Path to the dataset file (e.g., data/HIV.npy)')
+    parser.add_argument('--num_of_seed', type=int, default=10, help='Number of seeds (e.g., 5, 10, 20)')
     args = parser.parse_args()
 
-    data = np.load(args.dataset, allow_pickle=False)
+    # Load the dataset
+    data = np.load(args.dataset)
+
+    # Perform analysis here
+    print(f"Dataset {args.dataset} loaded with shape {data.shape}")
+
+
+
     data = convert_data_str_to_onehot(data)
     n_leaves = data.shape[0]
     initial_n_leaves = int(np.floor(np.sqrt(n_leaves * np.log2(n_leaves))))
@@ -290,7 +292,7 @@ if __name__ == "__main__":
     for seed in range(num_of_seed):
         np.random.seed(seed)
 
-        
+
 
         MAXN = 2 * n_leaves - 2
 
@@ -328,7 +330,7 @@ if __name__ == "__main__":
         tree_newick = nj(dm, result_constructor=str)
         tree = newick2nx(tree_newick, initial_n_leaves)
 
-       
+
 
         our_toc = time.process_time()
         output_path = os.path.join(results_dir, os.path.basename(args.dataset) + f'_SNJ_tree_seed{seed}.pickle')
@@ -339,5 +341,5 @@ if __name__ == "__main__":
 
     print('*******************')
     print('DONE=>>>>> ' + args.dataset)
-    print('SNJ Elapsed time: ', time_array)
+    print('SNJ clustering time=', time_array)
     print('*******************')
