@@ -36,7 +36,7 @@ for dataset in datasets:
         rnj_tree = dendropy.Tree.get(data=rnj_tree_data, schema="newick", taxon_namespace=reference_tree.taxon_namespace)
 
     # Load the FNJ tree from a pickle file
-    fnj_tree_path = f"results/FNJ_tree_data/{dataset}.pickle"  # Modify this path according to your file structure
+    fnj_tree_path = f"results/FNJ_tree_data/{dataset}.pickle"  
     with open(fnj_tree_path, 'rb') as fnj_file:
         fnj_tree_data = pickle.load(fnj_file)
         # Assuming fnj_tree_data is a valid Newick string
