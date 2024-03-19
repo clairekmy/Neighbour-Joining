@@ -1,0 +1,99 @@
+##Date: 16 March 2024
+
+from Bio import Entrez, SeqIO
+from Bio.Seq import Seq  # Add this line to import the Seq class
+import numpy as np
+import os
+from http.client import IncompleteRead
+
+# Create 'data' directory if it doesn't exist
+data_dir = "data"
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
+Entrez.email = "kangmingyue96@gmail.com"
+
+organisms = {
+    "HIV": {
+        "search_term": ('("Human immunodeficiency virus 1"[Organism] OR "Human immunodeficiency virus 2"[Organism] OR '
+                        '"Human immunodeficiency virus"[Organism] OR "Human immunodeficiency virus 3"[Organism] OR '
+                        '"Simian-Human immunodeficiency virus"[Organism] OR HIV[All Fields]) AND '
+                        '(1000:9999[SLEN] AND "Homo sapiens"[Organism] AND is_nuccore[filter])'),
+        "length_range": (1000, 9999)
+    },
+    "SARS-CoV-2": {
+        "search_term": '("Severe acute respiratory syndrome coronavirus 2"[Organism] OR SARS-CoV-2[All Fields]) AND ("2000"[SLEN] : "4000"[SLEN])',
+        "length_range": (2000, 4000)
+    },
+    "Swine H1N1": {
+        "search_term": '(("Sus scrofa"[Organism] OR swine[All Fields]) AND H1N1[All Fields] AND influenza[All Fields]) AND ("2000"[SLEN] : "3000"[SLEN])',
+        "length_range": (2000, 3000)
+    }
+}
+
+for key, data in organisms.items():
+    search_term, length_range = data["search_term"], data["length_range"]
+    
+    # Search for sequences
+    search_handle = Entrez.esearch(db="nucleotide", term=search_term, retmax=2000)
+    search_results = Entrez.read(search_handle)
+    search_handle.close()
+    seq_ids = search_results["IdList"]
+
+    # Fetch the sequences with retry mechanism
+    attempts = 0
+    max_attempts = 3
+    while attempts < max_attempts:
+        try:
+            fetch_handle = Entrez.efetch(db="nucleotide", id=seq_ids, rettype="fasta", retmode="text")
+            sequences = SeqIO.parse(fetch_handle, "fasta")
+            
+            valid_sequences = []
+
+            for seq_record in sequences:
+                seq_len = len(seq_record)
+                if length_range[0] <= seq_len <= length_range[1]:
+                    seq_str = str(seq_record.seq).upper()
+                    if seq_str.count('-') > seq_len / 2 or seq_str.count('-') == seq_len:
+                        continue  # Skip sequences with more than 50% gaps or entirely gaps
+                    valid_sequences.append(seq_record)
+
+            fetch_handle.close()
+            break
+        except IncompleteRead:
+            attempts += 1
+            if attempts == max_attempts:
+                raise
+            print(f"Attempt {attempts} failed, retrying...")
+
+    # Save the valid sequences to a single file for each organism
+    output_file = os.path.join(data_dir, f"{key}.fasta")
+    print(f"Shape of sequences for {key}: {len(valid_sequences)} sequences")
+    SeqIO.write(valid_sequences, output_file, "fasta")
+    print(f"Saved sequences for {key} to {output_file}")
+
+
+#  Function to pad sequences, save as FASTA, and convert to NPY
+def pad_and_save(fasta_file, padded_fasta_file, npy_file):
+    sequences = list(SeqIO.parse(fasta_file, "fasta"))
+    max_len = max(len(seq.seq) for seq in sequences)
+    padded_sequences = [str(seq.seq).ljust(max_len, '-') for seq in sequences]
+
+    # Save padded sequences as a new FASTA file
+    with open(padded_fasta_file, "w") as output_handle:
+        for seq, original_seq in zip(padded_sequences, sequences):
+            SeqIO.write(SeqIO.SeqRecord(seq=Seq(seq), id=original_seq.id, description=original_seq.description), output_handle, "fasta")
+
+    # Convert the padded sequences to NPY format
+    sequences_array = np.array([list(seq) for seq in padded_sequences])
+    np.save(npy_file, sequences_array)
+    return sequences_array.shape
+
+# Pad sequences, save as FASTA and NPY, and print the shape of each dataset
+for key in organisms.keys():
+    fasta_file = os.path.join(data_dir, f"{key}.fasta")
+    padded_fasta_file = os.path.join(data_dir, f"{key}_padded.fasta")
+    npy_file = os.path.join(data_dir, f"{key}.npy")
+    shape = pad_and_save(fasta_file, padded_fasta_file, npy_file)
+    print(f"Padded {fasta_file}, saved as {padded_fasta_file} and {npy_file} with shape {shape}")
+    
