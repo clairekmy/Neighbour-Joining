@@ -4,6 +4,8 @@ import pickle
 import utils  
 import heapq
 from tqdm import tqdm
+import os
+import argparse
 
 
 def fast_neighbor_joining(distance_matrix, taxa):
@@ -28,7 +30,7 @@ def fast_neighbor_joining(distance_matrix, taxa):
 
             # Merge the clusters
             new_cluster = clusters[i] | clusters[j]
-            new_cluster_name = f"({cluster_names[i]}, {cluster_names[j]})"
+            new_cluster_name = f"({cluster_names[i]}:{distance_matrix[i, j]/2},{cluster_names[j]}:{distance_matrix[i, j]/2})"
             clusters.append(new_cluster)
             cluster_names.append(new_cluster_name)
             k = len(clusters) - 1  # This is the new cluster's index
@@ -60,55 +62,61 @@ def fast_neighbor_joining(distance_matrix, taxa):
 
     # Merge the last two clusters
     i, j = active_clusters
-    new_cluster_name = f"({cluster_names[i]}, {cluster_names[j]})"
+    new_cluster_name = f"({cluster_names[i]}:{distance_matrix[i, j]/2},{cluster_names[j]}:{distance_matrix[i, j]/2});"
     return new_cluster_name
 
 
 
 
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Run Fast Neighbor Joining on a dataset.')
+    parser.add_argument('--dataset', required=True, help='Path to the dataset file (e.g., data/HIV.npy)')
+    args = parser.parse_args()
+
+    # Load the dataset
+    data = np.load(args.dataset)
+
+    n_leaves = data.shape[0]
+    seq_length = data.shape[1]
+
+    # Convert the sequences to one-hot encoding
+    data_onehot = utils.convert_data_str_to_onehot(data)
+
+    # Calculate the distance matrix
+    way_1_tic = time.process_time()
+    dist_matrix = np.zeros([n_leaves, n_leaves])
+    for ki in range(n_leaves):
+        dist_matrix[ki, ki+1:] += np.abs(data_onehot[ki+1:, :, :] - data_onehot[ki, :, :]).sum(axis=-1).sum(axis=-1)
+    dist_matrix += dist_matrix.T
+    dist_matrix = dist_matrix / (2 * data.shape[1])
+
+    # Adjust the distance matrix for the Jukes-Cantor model
+    epsilon = 1e-10
+    dist_matrix = np.clip(dist_matrix, 0, 1 - 4 * epsilon / 3)
+    dist_matrix = (-3 / 4) * np.log(1 - dist_matrix * 4 / 3 + epsilon)
+    dist_matrix = (dist_matrix + dist_matrix.T) / 2
+    dist_matrix = np.nan_to_num(dist_matrix, nan=0.0)
+    np.fill_diagonal(dist_matrix, 0)
+    way_1_toc = time.process_time()
+
+    # Construct the FNJ tree
+    FNJ_tic = time.process_time()
+    taxa = [str(i) for i in range(n_leaves)]
+    FNJ_tree = fast_neighbor_joining(dist_matrix, taxa)
+    FNJ_toc = time.process_time()
+
+    results_dir = 'results'
+    
+
+    # Save the FNJ tree with a dataset-specific filename
+    fnj_output_path = os.path.join(results_dir, f'FNJ_tree_{args.dataset}.pickle')
+    with open(fnj_output_path, 'wb') as f:
+        pickle.dump(FNJ_tree, f)
 
 
-# Load sequences
-data = np.load('hiv_sequences_padded.npy')
-
-n_leaves = data.shape[0]
-
-# Convert to one-hot encoding
-data_onehot = utils.convert_data_str_to_onehot(data)
-
-# Calculate the distance matrix
-way_1_tic = time.time()
-dist_matrix = np.zeros([n_leaves, n_leaves])
-for ki in range(n_leaves):
-    dist_matrix[ki, ki+1:] += np.abs(data_onehot[ki+1:, :, :] - data_onehot[ki, :, :]).sum(axis=-1).sum(axis=-1)
-dist_matrix += dist_matrix.T
-dist_matrix = dist_matrix / (2 * data.shape[1])
-
-# Adjust the distance matrix (Jukes-Cantor model)
-epsilon = 1e-10
-dist_matrix = np.clip(dist_matrix, 0, 1 - 4 * epsilon / 3)
-dist_matrix = (-3 / 4) * np.log(1 - dist_matrix * 4 / 3 + epsilon)
-dist_matrix = (dist_matrix + dist_matrix.T) / 2
-dist_matrix = np.nan_to_num(dist_matrix, nan=0.0)
-np.fill_diagonal(dist_matrix, 0)
-way_1_toc = time.time()
-
-# Construct FNJ tree
-FNJ_tic = time.time()
-taxa = [str(i) for i in range(n_leaves)]
-FNJ_tree = fast_neighbor_joining(dist_matrix, taxa)
-FNJ_toc = time.time()
-
-# Save FNJ tree to a pickle file
-with open('results/FNJ_tree.pickle', 'wb') as file:
-    pickle.dump(FNJ_tree, file)
-
-
-# Print
-print('*******************')
-print('DONE')
-print('Distance matrix time: ', way_1_toc - way_1_tic)
-print('FNJ clustering time: ', FNJ_toc - FNJ_tic)
-print('*******************')
-
+    # Print the timings
+    print('*******************')
+    print('DONE=>>>>> ' + args.dataset)
+    print('FNJ clustering time=', FNJ_toc - FNJ_tic)
+    print('*******************')
