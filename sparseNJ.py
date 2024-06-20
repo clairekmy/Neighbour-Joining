@@ -341,5 +341,5 @@ if __name__ == "__main__":
 
     print('*******************')
     print('DONE=>>>>> ' + args.dataset)
-    print('SNJ clustering time=', time_array)
+    print('SparseNJ computation time:', time_array)
     print('*******************')
