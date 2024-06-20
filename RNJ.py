@@ -1,116 +1,83 @@
 import numpy as np
 import time
 import pickle
-import utils  
 import os
 import argparse
 
-from tqdm import tqdm
-
+def load_distance_matrix(dataset_path):
+    if not os.path.exists(dataset_path):
+        print(f"File not found: {dataset_path}")
+        sys.exit(1)  # Exit the script if the file does not exist
+    with open(dataset_path, 'rb') as f:
+        return pickle.load(f)
 
 def relaxed_neighbor_joining(distance_matrix, taxa):
-    clusters = [{i} for i in range(len(taxa))]
+    n = len(taxa)
+    clusters = [{i} for i in range(n)]
     cluster_names = taxa.copy()
-    total_iterations = len(taxa) - 2  # Total number of iterations required
 
-    with tqdm(total=total_iterations, desc="Merging clusters") as pbar:
-        while len(clusters) > 2:
-            n = len(distance_matrix)
-            total_distances = np.sum(distance_matrix, axis=1)
-            q_matrix = (n - 2) * distance_matrix - total_distances[:, None] - total_distances[None, :]
+    while n > 2:
+        min_val = np.inf
+        for x in range(n):
+            for y in range(x + 1, n):
+                if distance_matrix[x, y] < min_val:
+                    min_val = distance_matrix[x, y]
+                    i, j = x, y
 
-            i, j = np.unravel_index(np.argmin(q_matrix), q_matrix.shape)
+        new_distances = [(distance_matrix[i, k] + distance_matrix[j, k] - distance_matrix[i, j]) / 2 for k in range(n) if k != i and k != j]
+        new_distances.append(0)  # Distance to itself
 
-            new_cluster_distances = (distance_matrix[i, :] + distance_matrix[j, :] - distance_matrix[i, j]) / 2
+        new_distance_matrix = np.zeros((n - 1, n - 1))
+        for x in range(n - 2):
+            for y in range(n - 2):
+                xi, yi = (x if x < i else x + 1), (y if y < j else y + 1)
+                new_distance_matrix[x, y] = distance_matrix[xi, yi]
+        for x in range(n - 1):
+            new_distance_matrix[x, -1] = new_distance_matrix[-1, x] = new_distances[x]
 
-            new_cluster = clusters[i] | clusters[j]
-            new_cluster_name = f"({cluster_names[i]}:{distance_matrix[i, j]/2},{cluster_names[j]}:{distance_matrix[i, j]/2})"
+        distance_matrix = new_distance_matrix
+        new_cluster_name = f"({cluster_names[i]}:{min_val / 2},{cluster_names[j]}:{min_val / 2})"
+        clusters.append(clusters[i] | clusters[j])
+        cluster_names.append(new_cluster_name)
+        for index in sorted([i, j], reverse=True):
+            del clusters[index]
+            del cluster_names[index]
 
-            clusters.append(new_cluster)
-            cluster_names.append(new_cluster_name)
+        n -= 1
 
-            # Create a new distance matrix
-            new_distance_matrix = np.zeros((n - 1, n - 1))
-            for a in range(n - 1):
-                for b in range(a + 1, n - 1):
-                    ai = a if a < i else a + 1
-                    bi = b if b < j else b + 1
-                    new_distance_matrix[a, b] = new_distance_matrix[b, a] = distance_matrix[ai, bi]
-            new_distance_matrix[-1, :-1] = new_cluster_distances[:-2]  # Use elements up to the second last
-            new_distance_matrix[:-1, -1] = new_cluster_distances[:-2]  # Use elements up to the second last
-
-            distance_matrix = new_distance_matrix
-
-            if i < j:
-                del clusters[j]
-                del clusters[i]
-                del cluster_names[j]
-                del cluster_names[i]
-            else:
-                del clusters[i]
-                del clusters[j]
-                del cluster_names[i]
-                del cluster_names[j]
-
-            pbar.update(1)  # Update the progress bar
-
-    i, j = 0, 1
-    new_cluster_name = f"({cluster_names[i]}:{distance_matrix[i, j]/2},{cluster_names[j]}:{distance_matrix[i, j]/2});"
-    return new_cluster_name
-
-
+    final_distance = distance_matrix[0, 1]
+    return f"({cluster_names[0]}:{final_distance / 2},{cluster_names[1]}:{final_distance / 2});"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Relaxed Neighbor Joining on a dataset.')
     parser.add_argument('--dataset', required=True, help='Path to the dataset file (e.g., data/HIV.npy)')
     args = parser.parse_args()
 
-    # Load the dataset
-    data = np.load(args.dataset)
-    n_leaves = data.shape[0]
-    seq_length = data.shape[1]
-
-    # Convert the sequences to one-hot encoding
-    data_onehot = utils.convert_data_str_to_onehot(data)
-
-    # Calculate the distance matrix
-    way_1_tic = time.process_time()
-    dist_matrix = np.zeros([n_leaves, n_leaves])
-    for ki in range(n_leaves):
-        dist_matrix[ki, ki+1:] += np.abs(data_onehot[ki+1:, :, :] - data_onehot[ki, :, :]).sum(axis=-1).sum(axis=-1)
-    dist_matrix += dist_matrix.T
-    dist_matrix = dist_matrix / (2 * data.shape[1])
-
-    # Adjust the distance matrix for the Jukes-Cantor model
-    epsilon = 1e-10
-    dist_matrix = np.clip(dist_matrix, 0, 1 - 4 * epsilon / 3)
-    dist_matrix = (-3 / 4) * np.log(1 - dist_matrix * 4 / 3 + epsilon)
-    dist_matrix = (dist_matrix + dist_matrix.T) / 2
-    dist_matrix = np.nan_to_num(dist_matrix, nan=0.0)
-    np.fill_diagonal(dist_matrix, 0)
-    way_1_toc = time.process_time()
-
-    # Construct the RNJ tree
-    RNJ_tic = time.process_time()
-    taxa = [str(i) for i in range(n_leaves)]
+    dist_matrix = load_distance_matrix(args.dataset)
+    start_time = time.time()
+    taxa = [str(i) for i in range(dist_matrix.shape[0])]
     RNJ_tree = relaxed_neighbor_joining(dist_matrix, taxa)
-    RNJ_toc = time.process_time()
+    end_time = time.time()
+    computation_time = end_time - start_time
+    print(f"RNJ computation time: {computation_time} seconds")
 
     results_dir = 'results'
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
 
-    # Save the RNJ tree with a dataset-specific filename
-    rnj_output_path = os.path.join(results_dir, f'RNJ_tree_{args.dataset}.pickle')
-    with open(rnj_output_path, 'wb') as f:
-        pickle.dump(RNJ_tree, f)
+    rnj_output_path = os.path.join(results_dir, f'RNJ_tree_{os.path.basename(args.dataset)}.newick')
+    with open(rnj_output_path, 'w') as f:
+        f.write(RNJ_tree)
 
-    # Print the timings
-    print('*******************')
-    print('DONE=>>>>> ' + args.dataset)
-    print('RNJ clustering time=', RNJ_toc - RNJ_tic)
-    print('*******************')
+    # Optionally save computation metadata in a pickle file
+    metadata = {
+        'computation_time': computation_time,
+        'num_taxa': len(taxa),
+        'algorithm': 'Relaxed Neighbor Joining'
+    }
+    metadata_path = os.path.join(results_dir, f'RNJ_metadata_{os.path.basename(args.dataset)}.pickle')
+    with open(metadata_path, 'wb') as f:
+        pickle.dump(metadata, f)
 
-
-
-
-
-
+    print(f'RNJ tree saved successfully to {rnj_output_path}')
+    print(f'Metadata saved successfully to {metadata_path}')
