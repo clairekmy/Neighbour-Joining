@@ -1,80 +1,99 @@
-import argparse
-import numpy as np
 import os
-import subprocess
 import sys
+import pickle
+import subprocess
+import time
+import numpy as np
+import argparse
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the analysis on given datasets.')
-    parser.add_argument('--datasets', nargs='+', default=['HIV', 'SARS-CoV-2', 'Swine H1N1'],
-                        help='Names of the datasets (e.g., HIV SARS-CoV-2 Swine H1N1)')
+    parser.add_argument('--datasets', nargs='+', default=[
+    'E_coli', 'Yeast', 'Arabidopsis_thaliana', 'Drosophila_melanogaster', 'Salmon',
+    'Chicken', 'Mycobacterium_tuberculosis', 'Shrimp', 'Candida_albicans', 'Corn',
+    'Bacillus_subtilis', 'Human', 'Mouse', 'HIV', 'Streptococcus_pneumoniae',
+    'Wheat', 'Aspergillus', 'Tomato', 'Zebrafish', 'Rice'],
+                        help='Names of the datasets')
     parser.add_argument('--num_of_seed', type=int, default=10, help='Number of seeds (e.g., 5, 10, 20)')
 
-    # Ignore any arguments that are not recognized
-    args, unknown = parser.parse_known_args()
+    args = parser.parse_known_args()[0]
 
-    running_times = {'SparseNJ': [], 'FNJ': [], 'RNJ': []}
+    running_times = {'NJ': [], 'SparseNJ': [], 'FNJ': [], 'RNJ': []}
 
-    # Process each dataset
     for dataset in args.datasets:
-        # Construct the full path to the dataset file
-        dataset_path = os.path.join('data', f'{dataset}.npy')
+        sparse_dataset_path = os.path.join('data', f'{dataset}.npy')
+        results_dataset_path = os.path.join('results', f'distance_matrix_{dataset}.npy.pickle')
 
-        # Load the dataset
-        data = np.load(dataset_path, allow_pickle=False)
-        print(f"Dataset {dataset} loaded with shape {data.shape}")
+        if os.path.exists(results_dataset_path):
+            with open(results_dataset_path, 'rb') as f:
+                data_results = pickle.load(f)
+            print(f"Distance matrix for {dataset} loaded for NJ, RNJ, FNJ.")
+        else:
+            print(f"File not found: {results_dataset_path}")
+            continue
 
-        for algorithm in ['sparseNJ', 'FNJ', 'RNJ']:
-            result = subprocess.run([sys.executable, f'{algorithm}.py', '--dataset', dataset_path],
-                                    capture_output=True, text=True)
-            print(f"{algorithm} stdout: {result.stdout}")
-            print(f"{algorithm} stderr: {result.stderr}")
-            output = result.stdout.strip().split('\n')
+        # Run NJ first
+        tic = time.perf_counter()
+        try:
+            result = subprocess.run([sys.executable, 'NJ.py', '--dataset', dataset],
+                                    capture_output=True, text=True, check=True)
+            toc = time.perf_counter()
+            elapsed_time = toc - tic
 
-            if algorithm == 'sparseNJ':
-                times = []
-                for line in output:
-                    if "SNJ clustering time=" in line:  # Changed from f"{algorithm} clustering time="
-                        time_str = line.split('=')[1].strip().strip('[]')
-                        times = [float(t) for t in time_str.split()]
-                        break
-                if times:
-                    average_time = sum(times) / len(times)
-                    running_times['SparseNJ'].append(average_time)  # Changed from algorithm to 'SparseNJ'
+            running_times['NJ'].append(elapsed_time)
 
-            else:
-                time = None
-                for line in output:
-                    if f"{algorithm} clustering time=" in line:
-                        time = float(line.split('=')[1].strip())
-                        break
-                if time is not None:
-                    running_times[algorithm].append(time)
+            print('*******************')
+            print(f'DONE=>>>>> {dataset} with NJ')
+            print(f'NJ computation time: {elapsed_time} seconds')
+            print('*******************')
 
-    # Plotting the results
+        except subprocess.CalledProcessError as e:
+            print(f"Error running NJ.py: {e}")
+            print(f"Stderr: {e.stderr}")
+            continue
+
+        for algorithm in ['SparseNJ', 'FNJ', 'RNJ']:
+            tic = time.perf_counter()
+            try:
+                dataset_path = sparse_dataset_path if algorithm == 'SparseNJ' else results_dataset_path
+
+                result = subprocess.run([sys.executable, f'{algorithm}.py', '--dataset', dataset_path],
+                                        capture_output=True, text=True, check=True)
+                toc = time.perf_counter()
+                elapsed_time = toc - tic
+
+                running_times[algorithm].append(elapsed_time)
+
+                print('*******************')
+                print(f'DONE=>>>>> {dataset} with {algorithm}')
+                print(f'{algorithm} computation time: {elapsed_time} seconds')
+                print('*******************')
+
+            except subprocess.CalledProcessError as e:
+                print(f"Error running {algorithm}.py: {e}")
+                print(f"Stderr: {e.stderr}")
+
     plt.figure(figsize=(12, 6))
-    x = np.arange(len(args.datasets))
-    width = 0.2
-
-    offsets = [-width, 0, width]
-    colors = ['#2ca02c', '#d62728', '#1f77b4']
-    labels = ['SparseNJ', 'FNJ', 'RNJ']
+    markers = ['o', 's', 'D', 'x']
+    colors = ['#1f77b4', '#2ca02c', '#d62728', '#ff7f0e']
+    labels = ['NJ', 'SparseNJ', 'FNJ', 'RNJ']
 
     print("Running times:", running_times)
 
-    for i, (label, offset, color) in enumerate(zip(labels, offsets, colors)):
+    for label, marker, color in zip(labels, markers, colors):
         if running_times[label]:
-            plt.bar(x + offset, running_times[label], width, label=label, color=color, edgecolor='black')
+            plt.scatter(args.datasets, running_times[label], s=20, marker=marker, label=label, color=color, edgecolor='black')
+            plt.plot(args.datasets, running_times[label], color=color, linestyle='-', linewidth=2)  # Line connecting the points
         else:
             print(f"No running times for {label}")
 
     plt.xlabel('Dataset', fontsize=16, labelpad=12)
     plt.ylabel('Elapsed Time (seconds)', fontsize=16, labelpad=12)
     plt.title('Elapsed Time Comparison', fontsize=18, pad=22)
-    plt.xticks(x, args.datasets, rotation=45, ha="right")
+    plt.xticks(rotation=45, ha="right")
     plt.yticks(fontsize=14)
     plt.legend(fontsize=14, frameon=True, shadow=True)
     plt.tight_layout()
-    plt.savefig('elapsed_time_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig('elapsed_time_comparison_scatter_all.png', dpi=300, bbox_inches='tight')
     plt.show()
