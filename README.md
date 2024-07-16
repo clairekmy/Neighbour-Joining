@@ -47,7 +47,6 @@ python NJ.py
 - **FNJ.py**: Implements the Fast Neighbor Joining method.
 - **data_extraction.py**: Extracts and preprocesses data for analysis.
 - **distance.py**: Computes distance matrices used for phylogenetic tree construction.
-- **load_distance_matrix.py**: Loads precomputed distance matrices.
 - **reference_construction.py**: Constructs reference trees for comparison.
 - **time.py**: Measures the execution time of different NJ methods.
 - **utils.py**: Utility functions for data manipulation and analysis.
